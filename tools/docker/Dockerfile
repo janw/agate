@@ -1,8 +1,23 @@
-FROM alpine:latest
-RUN apk add cargo && wget -O source.tar.gz $(wget -qO- https://api.github.com/repos/mbrubeck/agate/releases/latest | sed -nE 's/^.*"tarball_url"\s*:\s*"([^"]+)".*$/\1/p')&& tar xzf source.tar.gz && mv /mbrubeck-agate-* /agate && cd agate && cargo build --release
-RUN cp /agate/target/release/agate /usr/bin/agate
-WORKDIR /app
-COPY . /app
-ADD . .
-ENTRYPOINT ["/bin/sh", "start.sh"]
+# syntax=docker/dockerfile:1.3
+FROM rust:1.61-alpine AS builder
 
+RUN apk --no-cache add libc-dev
+
+WORKDIR /build
+COPY Cargo.* ./
+COPY src ./src
+
+RUN --mount=type=cache,target=/root/.cargo cargo build --verbose --target=x86_64-unknown-linux-musl --release
+
+FROM alpine
+
+RUN apk --no-cache add tini
+
+COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/agate /usr/bin/agate
+COPY content /content
+
+EXPOSE 1965
+VOLUME ["/content"]
+
+ENTRYPOINT ["tini", "--", "agate"]
+CMD ["--hostname", "localhost"]
